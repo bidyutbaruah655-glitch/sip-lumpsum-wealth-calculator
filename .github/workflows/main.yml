@@ -1,0 +1,71 @@
+name: Build SIP Calculator Android App
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Prepare Web Assets Folder
+        run: |
+          mkdir -p www
+          cp index.html manifest.json sw.js icon.png www/
+
+      - name: Initialize Capacitor & Install Dependencies
+        run: |
+          npm init -y
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets
+          npx cap init "SIP Wealth Calculator" "com.wealthsuite.sipcalculator" --web-dir=www
+          npx cap add android
+
+      - name: Generate Custom Android Icons & Splash
+        run: |
+          mkdir -p assets
+          cp icon.png assets/icon.png
+          npx capacitor-assets generate --android
+          npx cap sync android
+
+      - name: Build Debug APK & Release AAB
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug bundleRelease
+
+      - name: Generate Keystore & Sign Release AAB
+        run: |
+          keytool -genkeypair -v -keystore release-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias sipkey -storepass sipcalc123 -keypass sipcalc123 -dname "CN=WealthSuite, OU=Apps, O=WealthSuite, L=Guwahati, S=Assam, C=IN"
+          jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore release-key.jks -storepass sipcalc123 -keypass sipcalc123 android/app/build/outputs/bundle/release/app-release.aab sipkey
+
+      - name: Package Build Artifacts
+        run: |
+          mkdir -p build-outputs
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-outputs/
+          cp android/app/build/outputs/bundle/release/app-release.aab build-outputs/
+          cp release-key.jks build-outputs/
+
+      - name: Upload Android App Builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: sip-android-app-builds
+          path: build-outputs/
+
+
+          
